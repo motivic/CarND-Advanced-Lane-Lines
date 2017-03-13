@@ -4,11 +4,16 @@ __author__ = 'Johnson Jia'
 
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 class Quadratic_lane_fitter():
     """ Apply sliding window filtering of the lane lines; fit quadratic
     polynomials to model the lane lines.
+
+    Attributes:
+        left_fit: Coefficients of the quadratic fit for the left lane.
+        right_fit: Coefficients of the quadratic fit for the right lane.
     """
 
     def __init__(self, nwindows=9, margin=100, minpix=50):
@@ -17,38 +22,61 @@ class Quadratic_lane_fitter():
         self._minpix = minpix
         self._left_fit = None
         self._right_fit = None
-        self._left_lane_inds = None
-        self._right_lane_inds = None
 
-    def find_lanes(self, image):
+    @property
+    def left_fit(self):
+        return self._left_fit
+
+    @property
+    def right_fit(self):
+        return self._right_fit
+
+    def find_lanes(self, image, display=False):
         """ Determine the quadratic polynomial fits.
 
         Args:
             image: The image with the lane lines.
+            display: Display the image with lane lines drawn.
         """
         # Identify the x and y positions of all nonzero pixels in the image
         nonzero = image.nonzero()
-        nonzerox = np.array(nonzero[0])
-        nonzeroy = np.array(nonzero[1])
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
 
         # If we have not found a reasonable window around the lanes.
         if self._left_fit is None:
-            left_lane_inds, right_lane_inds = self._fix_window(image)
+            l_lane_inds, r_lane_inds, out_img = self._sliding_window(image)
         else:
-            left_lane_inds, right_lane_inds = self._sliding_window(image)
+            l_lane_inds, r_lane_inds = self._fix_window(image)
+            out_img = np.dstack((image, image, image)) * 255
 
         # Extract left and right line pixel positions
-        leftx = nonzerox[left_lane_inds]
-        lefty = nonzeroy[left_lane_inds]
-        rightx = nonzerox[right_lane_inds]
-        righty = nonzeroy[right_lane_inds]
+        leftx = nonzerox[l_lane_inds]
+        lefty = nonzeroy[l_lane_inds]
+        rightx = nonzerox[r_lane_inds]
+        righty = nonzeroy[r_lane_inds]
 
         # Fit a second order polynomial to each
-        left_fit = np.polyfit(lefty, leftx, 2)
-        right_fit = np.polyfit(righty, rightx, 2)
+        self._left_fit = np.polyfit(lefty, leftx, 2)
+        self._right_fit = np.polyfit(righty, rightx, 2)
 
-        plt.plot(histogram)
-        pass
+
+        if display:
+            # Generate x and y values for plotting
+            ploty = np.linspace(0, image.shape[0]-1, image.shape[0])
+            left_fitx = self._left_fit[0] * ploty**2 + \
+                        self._left_fit[1] * ploty + self._left_fit[2]
+            right_fitx = self._right_fit[0] * ploty**2 + \
+                         self._right_fit[1] * ploty + self._right_fit[2]
+            out_img[nonzeroy[l_lane_inds], nonzerox[l_lane_inds]] = [255, 0, 0]
+            out_img[nonzeroy[r_lane_inds], nonzerox[r_lane_inds]] = [0, 0, 255]
+            plt.figure()
+            plt.imshow(out_img)
+            plt.plot(left_fitx, ploty, color='yellow')
+            plt.plot(right_fitx, ploty, color='yellow')
+            plt.xlim(0, 1280)
+            plt.ylim(720, 0)
+            plt.show()
 
     def _fix_window(self, image):
         """ Find lane indicators using previous fitted window.
@@ -59,10 +87,10 @@ class Quadratic_lane_fitter():
         Returns:
             The left lane and right lane indicators or window boundaries.
         """
-        # Identify the x and y positions of all nonzero pixels in the image
+        # Identify the x and y positions of all nonzero pixels in the image.
         nonzero = image.nonzero()
-        nonzerox = np.array(nonzero[0])
-        nonzeroy = np.array(nonzero[1])
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
         left_lane_inds = ((nonzerox > (self._left_fit[0] * (nonzeroy**2) +
                                        self._left_fit[1] * nonzeroy +
                                        self._left_fit[2] - self._margin)) &
@@ -85,20 +113,21 @@ class Quadratic_lane_fitter():
 
         Returns:
             The left lane and right lane indicators or window boundaries.
+            also the image with the windows overlayed.
         """
-        histogram = np.sum(image[image.shape[0] / 2:, :], axis=0)
+        histogram = np.sum(image[image.shape[0]//2:, :], axis=0)
         out_img = np.dstack((image, image, image)) * 255
-        midpoint = np.int(histogram.shape[0] / 2)
+        midpoint = np.int(histogram.shape[0]//2)
         leftx_base = np.argmax(histogram[:midpoint])
         rightx_base = np.argmax(histogram[midpoint:]) + midpoint
 
         # Choose the number of sliding windows.
-        window_height = np.int(image.shape[0] / self._nwindows)
+        window_height = np.int(image.shape[0]//self._nwindows)
 
         # Identify the x and y positions of all nonzero pixels in the image
         nonzero = image.nonzero()
-        nonzerox = np.array(nonzero[0])
-        nonzeroy = np.array(nonzero[1])
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
 
         # Current positions to be updated for each window
         leftx_current = leftx_base
@@ -121,10 +150,12 @@ class Quadratic_lane_fitter():
             cv2.rectangle(out_img, (win_xright_low, win_y_low),
                           (win_xright_high, win_y_high), (0, 255, 0), 2)
             # Identify the nonzero pixels in x and y within the window
-            good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) &
+            good_left_inds = ((nonzeroy >= win_y_low) &
+                              (nonzeroy < win_y_high) &
                               (nonzerox >= win_xleft_low) &
                               (nonzerox < win_xleft_high)).nonzero()[0]
-            good_right_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) &
+            good_right_inds = ((nonzeroy >= win_y_low) &
+                               (nonzeroy < win_y_high) &
                                (nonzerox >= win_xright_low) &
                                (nonzerox < win_xright_high)).nonzero()[0]
             # Append these indices to the lists
@@ -140,5 +171,4 @@ class Quadratic_lane_fitter():
         # Concatenate the arrays of indices
         left_lane_inds = np.concatenate(left_lane_inds)
         right_lane_inds = np.concatenate(right_lane_inds)
-        return left_lane_inds, right_lane_inds
-
+        return left_lane_inds, right_lane_inds, out_img

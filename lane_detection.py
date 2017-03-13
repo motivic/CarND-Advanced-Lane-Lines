@@ -11,15 +11,10 @@ import numpy as np
 
 from camera_calibration import Calibration
 from edge_detection import abs_sobel_thresh, dir_thresh, mag_thresh
+from lane_fitting import Quadratic_lane_fitter
 
 # Global constant calibrated using straight_lines1.jpg
 # and straight_lines2.jpg
-'''
-PERSPECTIVE_SRC_COORD = np.float32([[255, 720],
-                                    [589, 450],
-                                    [705, 450],
-                                    [1158, 720]])
-'''
 PERSPECTIVE_SRC_COORD = np.float32([[218.44, 710],
                                     [533.23, 480],
                                     [729.81, 480],
@@ -41,7 +36,7 @@ def detect(camera_cal, nx, ny, image):
     """
     # Calibrate the camera.
     calibration = Calibration(camera_cal, int(nx), int(ny))
-    img = cv2.imread(image)
+    img = mpimg.imread(image)
 
     # Undistort the image.
     undistorted_img = calibration.undistort(img)
@@ -67,7 +62,8 @@ def detect(camera_cal, nx, ny, image):
     plt.show()
 
     # Fit quadratic polynomial to the lanes.
-
+    lane_fitting = Quadratic_lane_fitter()
+    lane_fitting.find_lanes(warped, True)
 
 def binary_filter(img):
     """ Apply Sobel filters and saturation filters.
