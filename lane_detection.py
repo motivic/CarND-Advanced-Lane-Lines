@@ -63,7 +63,7 @@ def detect(camera_cal, nx, ny, image):
 
     # Fit quadratic polynomial to the lanes.
     lane_fitting = Quadratic_lane_fitter()
-    lane_fitting.find_lanes(warped, True)
+    l_coords, r_coords, y_coords = lane_fitting.find_lanes(warped)
 
 def binary_filter(img):
     """ Apply Sobel filters and saturation filters.
