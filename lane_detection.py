@@ -8,7 +8,7 @@ import cv2
 import functools
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
-from moviepy.editor import VideoFileClip
+from moviepy.editor import VideoClip, VideoFileClip
 import numpy as np
 
 from camera_calibration import Calibration
@@ -29,8 +29,16 @@ PERSPECTIVE_DST_COORD = np.float32([[300, 720],
                                     [950, 100],
                                     [950, 720]])
 
+binary_video = []
+warped_video = []
+def binary_make_frame(t):
+    return binary_video[t]
+
+def warped_make_frame(t):
+    return warped_video[t]
+
 @click.command()
-@click.option('--camera_cal',
+@click.option('--camera_cal', default='./camera_cal',
               help='folder containing the images for camera calibration')
 @click.option('--nx', default=9, help='number of inside corners in x')
 @click.option('--ny', default=6, help='number of inside corners in y')
@@ -43,17 +51,29 @@ def main(camera_cal, nx, ny, img, outfile, media_file):
     """
     # Calibrate the camera.
     calibration = Calibration(camera_cal, int(nx), int(ny))
+    lane_fitter = QuadraticLaneFitter()
+
     if img != 1:
-        process_frame = functools.partial(lane_detect, calibration=calibration)
+        process_frame = functools.partial(lane_detect,
+                                          calibration=calibration,
+                                          lane_fitter=lane_fitter)
         clip = VideoFileClip(media_file)
+        duration = clip.duration
+        fps = clip.fps
         clip_w_lane = clip.fl_image(process_frame)
         clip_w_lane.write_videofile(outfile, audio=False)
+        clip = VideoClip(binary_make_frame, duration=duration)
+        clip.write_videofile('binary_' + outfile, audio=False, fps=fps)
+        clip = VideoClip(warped_make_frame, duration=duration)
+        clip.write_videofile('warped_' + outfile, audio=False, fps=fps)
     else:
         frame = mpimg.imread(media_file)
-        laned_frame = lane_detect(frame, calibration)
+        laned_frame = lane_detect(frame,
+                                  calibration=calibration,
+                                  lane_fitter=lane_fitter)
         mpimg.imsave(outfile, laned_frame)
 
-def lane_detect(image, calibration):
+def lane_detect(image, calibration, lane_fitter):
     """ Apply camera calibration, edge detection, perspective
     transformation, and sliding window to detect lane lines.
 
@@ -69,11 +89,12 @@ def lane_detect(image, calibration):
     #plt.imshow(undistorted_img)
     #plt.plot([218.70, 595.60], [710, 450], 'r-')
     #plt.plot([685.10, 1087.30], [450, 710], 'r-')
-    #plt.show()
+    #plt.savefig()
 
     # Perform gradient and saturation thresholding.
     img = np.copy(undistorted_img)
     binary = binary_filter(img)
+    binary_video.append(binary)
     #plt.imshow(binary, cmap='gray')
     #plt.show()
 
@@ -83,18 +104,18 @@ def lane_detect(image, calibration):
     warped = cv2.warpPerspective(binary, M,
                                  binary.shape[0:2][::-1],
                                  flags=cv2.INTER_LINEAR)
+    warped_video.append(warped)
     #plt.imshow(warped, cmap='gray')
     #plt.show()
 
     # Fit quadratic polynomial to the lanes.
-    lane_fitting = QuadraticLaneFitter()
-    lane_fitting.find_lanes(warped)
+    lane_fitter.find_lanes(warped)
 
     # Draw lanes
     return draw_lane(warped,
-                     lane_fitting.left_fitx,
-                     lane_fitting.right_fitx,
-                     lane_fitting.ploty,
+                     lane_fitter.left_fitx,
+                     lane_fitter.right_fitx,
+                     lane_fitter.ploty,
                      M, undistorted_img)
 
 def draw_lane(warped, lx, rx, y, M, undist):
