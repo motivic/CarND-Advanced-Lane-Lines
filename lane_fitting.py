@@ -2,10 +2,7 @@
 
 __author__ = 'Johnson Jia'
 
-import cv2
 import numpy as np
-import matplotlib.pyplot as plt
-
 
 class QuadraticLaneFitter():
     """ Apply sliding window filtering of the lane lines; fit quadratic
@@ -25,6 +22,7 @@ class QuadraticLaneFitter():
         self._nwindows = nwindows
         self._margin = margin
         self._minpix = minpix
+        self._lane_widths = []
         self._left_fit = None
         self._right_fit = None
         self._left_fitx = None
@@ -94,7 +92,7 @@ class QuadraticLaneFitter():
         """
         return self._right_curverad
 
-    def find_lanes(self, image):
+    def find_lanes(self, image, trim_top=0.25):
         """ Determine the quadratic polynomial fits.
 
         Args:
@@ -112,8 +110,8 @@ class QuadraticLaneFitter():
             l_lane_inds, r_lane_inds = self._sliding_window(image)
         else:
             l_lane_inds, r_lane_inds = self._fix_window(image)
-            if l_lane_inds.size < self._minpix or \
-               r_lane_inds.size < self._minpix:
+            if l_lane_inds.size < self._minpix/2 or \
+               r_lane_inds.size < self._minpix/2:
                 l_lane_inds, r_lane_inds = self._sliding_window(image)
 
         # Extract left and right line pixel positions.
@@ -136,54 +134,95 @@ class QuadraticLaneFitter():
             self._right_fitx.append(self._right_fit[0]*np.square(self._ploty) +
                                     self._right_fit[1]*self._ploty +
                                     self._right_fit[2])
-            self._left_curverad = self._find_curvature(leftx, lefty)
-            self._right_curverad = self._find_curvature(rightx, righty)
+            self._left_curverad = self._find_curvature(self._left_fitx[-1])
+            self._right_curverad = self._find_curvature(self._right_fitx[-1])
+            self._lane_widths.append(np.median(self._right_fitx[-1] - \
+                                               self._left_fitx[-1]))
         else:
-            if np.mean(leftx) - np.mean(self._left_fitx[-1]) > self._margin/2:
+            lfit, rfit, lfitx, rfitx = self._mitigate_poor_fit(leftx, lefty,
+                                                               rightx, righty)
+            if np.max(abs(lfitx - self._left_fitx[-1])) > self._margin/3:
                 self._left_fitx.append(self._left_fitx[-1])
             else:
-                try:
-                    self._left_fit = np.polyfit(lefty, leftx, 2)
-                    self._left_curverad = self._find_curvature(leftx, lefty)
-                except TypeError:
-                    pass
-                self._left_fitx.append(
-                    self._left_fit[0]*np.square(self._ploty) +
-                    self._left_fit[1]*self._ploty +
-                    self._left_fit[2])
-
-            if np.mean(rightx) - np.mean(self._right_fitx[-1]) > self._margin/2:
+                self._left_fit = lfit
+                self._left_fitx.append(lfitx)
+                self._left_curverad = self._find_curvature(lfitx)
+            if np.max(abs(rfitx - self._right_fitx[-1])) > self._margin/3:
                 self._right_fitx.append(self._right_fitx[-1])
             else:
-                try:
-                    self._right_fit = np.polyfit(righty, rightx, 2)
-                    self._right_curverad = self._find_curvature(rightx, righty)
-                except TypeError:
-                    pass
-                self._right_fitx.append(
-                    self._right_fit[0]*np.square(self._ploty) +
-                    self._right_fit[1]*self._ploty +
-                    self._right_fit[2])
+                self._right_fit = rfit
+                self._right_fitx.append(rfitx)
+                self._right_curverad = self._find_curvature(rfitx)
+            self._lane_widths.append(np.median(self._right_fitx[-1] - \
+                                               self._left_fitx[-1]))
 
-    def _find_curvature(self, x, y):
+    def _mitigate_poor_fit(self, lx, ly, rx, ry):
+        """ Check whether the lane points discovered are reasonable.
+
+        Args:
+            lx: X-coordinates of the pixels for the left lane.
+            ly: Y-coordinates of the pixels for the left lane.
+            rx: X-coordinates of the pixels for the right lane.
+            ry: Y-coordinates of the pixels for the right lane.
+
+        Returns:
+            The fit and the coordinates of the fitted lanes.
+        """
+        lfit = np.polyfit(ly, lx, 2)
+        rfit = np.polyfit(ry, rx, 2)
+        lfitx = lfit[0]*np.square(self._ploty) + \
+                lfit[1]*self._ploty + lfit[2]
+        rfitx = rfit[0]*np.square(self._ploty) + \
+                rfit[1]*self._ploty + rfit[2]
+        # Check the lane separation is reasonable.
+        lane_width = np.median(self._lane_widths[-10:])
+        while True:
+            too_wide_ind = (rfitx - lfitx > lane_width + self._margin/5)
+            too_narrow_ind = (rfitx - lfitx < lane_width + self._margin/5)
+            if not too_wide_ind and not too_narrow_ind:
+                break
+            # Fix where the width between the fitted lanes is
+            # too wide or too narrow.
+            for i in too_wide_ind + too_narrow_ind:
+                l_diff = abs(lfitx[i] - self._left_fitx[-1][i])
+                r_diff = abs(rfitx[i] - self._right_fitx[-1][i])
+                # X-coordinate on the left deviated too much.
+                if l_diff > r_diff:
+                    # Set X-coordinate to be the midpoint between it
+                    # and the previous frame.
+                    lfitx[i] = (lfitx[i] + self._left_fitx[-1][i])/2
+                else:
+                    # Set X-coordinate to be the midpoint between it
+                    # and the previous frame.
+                    rfitx[i] = (rfitx[i] + self._right_fitx[-1][i])/2
+        # Refit the lanes
+        lfit = np.polyfit(self._ploty, lfitx, 2)
+        rfit = np.polyfit(self._ploty, rfitx, 2)
+        lfitx = lfit[0]*np.square(self._ploty) + \
+                lfit[1]*self._ploty + lfit[2]
+        rfitx = rfit[0]*np.square(self._ploty) + \
+                rfit[1]*self._ploty + rfit[2]
+        return lfit, rfit, lfitx, rfitx
+
+    def _find_curvature(self, x):
         """ Calculate the lane curvatures in meters.
 
         Args:
             x: X-coordinates of the pixels in the lane.
-            y: Y-coordinates of the pixels in the lane.
 
         Returns
             The curvature of the lane.
         """
         y_eval = np.max(self._ploty)
         # Fit new polynomials to x,y in world space
-        fit_cr = np.polyfit(y * self._ym_per_pix, x * self._xm_per_pix, 2)
+        fit_cr = np.polyfit(self._ploty * self._ym_per_pix,
+                            x * self._xm_per_pix, 2)
         # Calculate the new radii of curvature
         curverad = ((1 + (2*fit_cr[0]*y_eval*self._ym_per_pix \
                           + fit_cr[1])**2) ** 1.5) / np.absolute(2 * fit_cr[0])
         return curverad
 
-    def _fix_window(self, image):
+    def _fix_window(self, image, trim_top=0.25):
         """ Find lane indicators using previous fitted window.
 
         Args:
@@ -194,20 +233,21 @@ class QuadraticLaneFitter():
         """
         # Identify the x and y positions of all nonzero pixels in the image.
         nonzero = image.nonzero()
+        xdim, ydim = nonzero.size()
         nonzeroy = np.array(nonzero[0])
         nonzerox = np.array(nonzero[1])
         left_lane_inds = ((nonzerox > (self._left_fit[0]*(nonzeroy**2) +
                                        self._left_fit[1]*nonzeroy +
-                                       self._left_fit[2]-self._margin)) &
+                                       self._left_fit[2]-self._margin/4)) &
                           (nonzerox < (self._left_fit[0]*(nonzeroy**2) +
                                        self._left_fit[1]*nonzeroy +
-                                       self._left_fit[2]+self._margin)))
+                                       self._left_fit[2]+self._margin/4)))
         right_lane_inds = ((nonzerox > (self._right_fit[0]*(nonzeroy**2) +
                                         self._right_fit[1]*nonzeroy +
-                                        self._right_fit[2]-self._margin)) &
+                                        self._right_fit[2]-self._margin/4)) &
                            (nonzerox < (self._right_fit[0]*(nonzeroy ** 2) +
                                         self._right_fit[1]*nonzeroy +
-                                        self._right_fit[2]+self._margin)))
+                                        self._right_fit[2]+self._margin/4)))
         return left_lane_inds, right_lane_inds
 
     def _sliding_window(self, image):
