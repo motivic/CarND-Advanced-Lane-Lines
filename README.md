@@ -214,16 +214,17 @@ range of gradient, saturation, or some other property value of lane lines is bet
 2. Along the same lines, I thought about applying a Gaussian filter to reduce the noise created by shadow, 
 tire/skid marks, grass on the side of the road, etc. But I am a novice at computer image processing/signal processing
 so I decided to save this for later when I have a better understanding of image processing.
-3. The lane detection algorithm is expected to run in real-time, and needs to keep up with the vehicle speed if it
+3. Perspective transform causes loss in sharpness in the top part of the warped binary images.
+4. The lane detection algorithm is expected to run in real-time, and needs to keep up with the vehicle speed if it
 is to be practical in aiding self-driving. Our code is written in Python, which is not the ideal language if
 execution performance is a concern. 
-4. I thought about applying a convolutional/recurrent neural network to predict the lane pixel coordinates. This
+5. I thought about applying a convolutional/recurrent neural network to predict the lane pixel coordinates. This
 may very well work, but there isn't enough data of sufficient variety to train on. Potentially if we have a good
 lane detection algorithm that predicts lane lines accurately, then we can use it to generate training data for 
 such a neural network. I hope to try this out in the future.
-5. An underlying assumption in my algorithm is that the lanes are of constant width. While this is true in general,
+6. An underlying assumption in my algorithm is that the lanes are of constant width. While this is true in general,
 there are situations where the lane lines change width.
-6. Moreover, there are special road situations (e.g. roadwork with cone-identified lanes) under which this algorithm 
+7. Moreover, there are special road situations (e.g. roadwork with cone-identified lanes) under which this algorithm 
 will fail.
 
 Besides the `project_video.mp4`, I also applied my algorithm to the `challenge_video.py` and 
@@ -239,4 +240,4 @@ say the frame is all black), then the pipeline will throw an exception.
 What could I do to make it more robust? We can adjust the warmup window to just 1 frame (and also add some 
 exception handling), or simple adjust the `minpix` parameter to accept fewer pixels, but a better solution maybe to 
 just preload the algorithm with some good footage so it "warms up". In the end, the dependency on the quality of
-the footage cannot be replaced by robustness and error-handling in the sofware alone.  
+the footage cannot be replaced by robustness and error-handling in the sofware alone.
