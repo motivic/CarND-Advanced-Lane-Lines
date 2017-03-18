@@ -42,9 +42,9 @@ def main(camera_cal, nx, ny, img, outfile, media_file):
     """
     # Calibrate the camera.
     calibration = Calibration(camera_cal, int(nx), int(ny))
-    sample_chessboard = mpimg.imread('./camera_cal/calibration2.jpg')
+    '''sample_chessboard = mpimg.imread('./camera_cal/calibration2.jpg')
     undistorted_cb = calibration.undistort(sample_chessboard)
-    mpimg.imsave('output_images/undistort_chessboard.png', undistorted_cb)
+    mpimg.imsave('output_images/undistort_chessboard.png', undistorted_cb)'''
     lane_fitter = QuadraticLaneFitter()
 
     if img != 1:
@@ -119,7 +119,7 @@ def lane_detect(image, filename, calibration, lane_fitter):
     '''
 
     # Fit quadratic polynomial to the lanes.
-    out_img = lane_fitter.find_lanes(warped)
+    lane_fitter.find_lanes(warped)
 
     # Draw lanes
     result =  draw_lane(warped,
@@ -129,13 +129,15 @@ def lane_detect(image, filename, calibration, lane_fitter):
                         M, undistorted_img)
     # Add curvature and offset from center information.
     font = cv2.FONT_HERSHEY_SIMPLEX
-    title = "Radius of Curvature = {}m.\n" \
-            .format((lane_fitter.left_curvature + lane_fitter.right_fitx)/2)
+    title = "Radius of Curvature = {:.2f}m." \
+            .format((lane_fitter.left_curvature +
+                     lane_fitter.right_curvature)/2)
+    cv2.putText(result, title, (100, 80), font, 1.5, (255, 255, 255), 4)
     if lane_fitter.offset < 0:
-        title += "Vehicle is {}m left of center.".format(-lane_fitter.offset)
+        title = "Vehicle is {:.2f}m left of center.".format(-lane_fitter.offset)
     else:
-        title += "Vehicle is {}m right of center.".format(lane_fitter.offset)
-    cv2.putText(result, title, (10, 10), font, 2, 255)
+        title = "Vehicle is {:.2f}m right of center.".format(lane_fitter.offset)
+    cv2.putText(result, title, (100, 150), font, 1.5, (255, 255, 255), 4)
     return result
 
 def draw_lane(warped, lx, rx, y, M, undist):

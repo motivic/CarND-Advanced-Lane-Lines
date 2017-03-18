@@ -102,15 +102,17 @@ class QuadraticLaneFitter():
         """
         return self._offset
 
-    def find_lanes(self, img, trim_top=0.1):
+    def find_lanes(self, img, trim_top=0.1, visualize=False):
         """ Determine the quadratic polynomial fits.
 
         Args:
             img: The image with the lane lines.
             trim_top: The percentage of the top of the image to trim away.
+            visualize: If true, return image; otherwise return None.
 
         Returns:
-            Image with lane pixels colored.
+            If visualize is true, then return the image with
+            lane pixels colored.
         """
         # Trim the top of the image according trim_top.
         ydim, xdim = img.shape
@@ -176,7 +178,10 @@ class QuadraticLaneFitter():
                         (self._right_fitx[-1][-1] + \
                          self._left_fitx[-1][-1])/2) * self._xm_per_pix
 
-        return self._visualize(img, leftx, lefty, rightx, righty)
+        if visualize:
+            return self._visualize(img, leftx, lefty, rightx, righty)
+        else:
+            return None
 
     def _visualize(self, img, lx, ly, rx, ry):
         """ Color the identified lane pixels.
@@ -257,8 +262,10 @@ class QuadraticLaneFitter():
         rfitx = rfit[0]*np.square(self._ploty) + \
                 rfit[1]*self._ploty + rfit[2]
         # Check the lane separation is reasonable.
-        lane_width = np.median(self._lane_widths[-10:])
-        for i in range(200):
+        lane_width = np.median(self._lane_widths[-self._warmup:])
+        avg_leftx = np.average(self._left_fitx[-6:], axis=0)
+        avg_rightx = np.average(self._right_fitx[-6:], axis=0)
+        for i in range(100):
             idx = np.arange(self._ploty.size, dtype=int)
             too_wide_ind = idx[rfitx - lfitx > lane_width + self._margin/10]
             too_narrow_ind = idx[rfitx - lfitx < lane_width - self._margin/10]
@@ -267,17 +274,19 @@ class QuadraticLaneFitter():
             # Fix where the width between the fitted lanes is
             # too wide or too narrow.
             for i in np.concatenate([too_wide_ind, too_narrow_ind]):
-                l_diff = abs(lfitx[i] - self._left_fitx[-1][i])
-                r_diff = abs(rfitx[i] - self._right_fitx[-1][i])
+                #l_diff = abs(lfitx[i] - self._left_fitx[-1][i])
+                #r_diff = abs(rfitx[i] - self._right_fitx[-1][i])
+                l_diff = abs(lfitx[i] - avg_leftx[i])
+                r_diff = abs(rfitx[i] - avg_rightx[i])
                 # X-coordinate on the left deviated too much.
                 if l_diff > r_diff:
                     # Set X-coordinate to be the midpoint between it
                     # and the previous frame.
-                    lfitx[i] = (lfitx[i] + self._left_fitx[-1][i])/2
+                    lfitx[i] = (lfitx[i] + avg_leftx[i])/2
                 else:
                     # Set X-coordinate to be the midpoint between it
                     # and the previous frame.
-                    rfitx[i] = (rfitx[i] + self._right_fitx[-1][i])/2
+                    rfitx[i] = (rfitx[i] + avg_rightx[i])/2
         # Refit the lanes
         lfit = np.polyfit(self._ploty, lfitx, 2)
         rfit = np.polyfit(self._ploty, rfitx, 2)
