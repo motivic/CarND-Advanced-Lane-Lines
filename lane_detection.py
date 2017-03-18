@@ -6,6 +6,7 @@ __author__ = "Johnson Jia"
 import click
 import cv2
 import functools
+import math
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 from moviepy.editor import VideoClip, VideoFileClip
@@ -18,24 +19,14 @@ from lane_fitting import QuadraticLaneFitter
 # Global constant calibrated using straight_lines1.jpg
 # and straight_lines2.jpg
 PERSPECTIVE_SRC_COORD = np.float32([[218.70, 710],
-                                    #[533.23, 480],
                                     [595.60, 450],
-                                    #[729.81, 480],
                                     [685.10, 450],
                                     [1087.30, 710]])
 
 PERSPECTIVE_DST_COORD = np.float32([[300, 720],
-                                    [300, 100],
-                                    [950, 100],
-                                    [950, 720]])
-
-binary_video = []
-warped_video = []
-def binary_make_frame(t):
-    return binary_video[t]
-
-def warped_make_frame(t):
-    return warped_video[t]
+                                    [300, 0],
+                                    [1000, 0],
+                                    [1000, 720]])
 
 @click.command()
 @click.option('--camera_cal', default='./camera_cal',
@@ -51,52 +42,61 @@ def main(camera_cal, nx, ny, img, outfile, media_file):
     """
     # Calibrate the camera.
     calibration = Calibration(camera_cal, int(nx), int(ny))
+    sample_chessboard = mpimg.imread('./camera_cal/calibration2.jpg')
+    undistorted_cb = calibration.undistort(sample_chessboard)
+    mpimg.imsave('output_images/undistort_chessboard.png', undistorted_cb)
     lane_fitter = QuadraticLaneFitter()
 
     if img != 1:
         process_frame = functools.partial(lane_detect,
                                           calibration=calibration,
-                                          lane_fitter=lane_fitter)
+                                          lane_fitter=lane_fitter,
+                                          filename=media_file
+                                            .split('/')[-1]
+                                            .split('.')[0])
         clip = VideoFileClip(media_file)
-        duration = clip.duration
-        fps = clip.fps
         clip_w_lane = clip.fl_image(process_frame)
         clip_w_lane.write_videofile(outfile, audio=False)
-        clip = VideoClip(binary_make_frame, duration=duration)
-        clip.write_videofile('binary_' + outfile, audio=False, fps=fps)
-        clip = VideoClip(warped_make_frame, duration=duration)
-        clip.write_videofile('warped_' + outfile, audio=False, fps=fps)
     else:
         frame = mpimg.imread(media_file)
         laned_frame = lane_detect(frame,
                                   calibration=calibration,
-                                  lane_fitter=lane_fitter)
+                                  lane_fitter=lane_fitter,
+                                  filename=media_file
+                                    .split('/')[-1]
+                                    .split('.')[0])
         mpimg.imsave(outfile, laned_frame)
 
-def lane_detect(image, calibration, lane_fitter):
+def lane_detect(image, filename, calibration, lane_fitter):
     """ Apply camera calibration, edge detection, perspective
     transformation, and sliding window to detect lane lines.
 
     Args:
         image: The original image.
+        filename: The name of the image file.
         calibration: Calibration object used to correct for camera warping.
+        lane_fitter: QuadraticLaneFitter object used to fit the lanes.
 
     Returns:
         The undistorted image with lanes colored.
     """
     # Undistort the image.
     undistorted_img = calibration.undistort(image)
-    #plt.imshow(undistorted_img)
-    #plt.plot([218.70, 595.60], [710, 450], 'r-')
-    #plt.plot([685.10, 1087.30], [450, 710], 'r-')
-    #plt.savefig()
+    '''plt.imshow(undistorted_img)
+    plt.title('Undistorted version of {}.'.format(filename))
+    plt.savefig('output_images/undistorted_{}.jpg'.format(filename))
+    plt.plot([218.70, 595.60], [710, 450], 'r-')
+    plt.plot([595.60, 685.10], [450, 450], 'r-')
+    plt.plot([685.10, 1087.30], [450, 710], 'r-')
+    plt.plot([218.70, 1087.30], [710, 710], 'r-')
+    plt.title('Undistorted image with source points drawn.')
+    plt.savefig('output_images/outlined_{}.jpg'.format(filename))'''
 
     # Perform gradient and saturation thresholding.
     img = np.copy(undistorted_img)
     binary = binary_filter(img)
-    binary_video.append(binary)
-    #plt.imshow(binary, cmap='gray')
-    #plt.show()
+    plt.imshow(binary, cmap='gray')
+    plt.savefig('output_images/binary_{}.jpg'.format(filename))
 
     # Perform perspective transform.
     M = cv2.getPerspectiveTransform(PERSPECTIVE_SRC_COORD,
@@ -104,19 +104,39 @@ def lane_detect(image, calibration, lane_fitter):
     warped = cv2.warpPerspective(binary, M,
                                  binary.shape[0:2][::-1],
                                  flags=cv2.INTER_LINEAR)
-    warped_video.append(warped)
-    #plt.imshow(warped, cmap='gray')
-    #plt.show()
+    '''color_warped = cv2.warpPerspective(img, M,
+                                       img.shape[0:2][::-1],
+                                       flags=cv2.INTER_LINEAR)
+    plt.imshow(color_warped)
+    plt.title('Warped result with destination points drawn.')
+    plt.plot([300, 1000], [720, 720], 'r-')
+    plt.plot([300, 1000], [0, 0], 'r-')
+    plt.plot([300, 300], [0, 720], 'r-')
+    plt.plot([1000, 1000], [0, 720], 'r-')
+    plt.savefig('output_images/warped_{}.jpg'.format(filename))
+    plt.imshow(warped, cmap='gray')
+    plt.show()
+    '''
 
     # Fit quadratic polynomial to the lanes.
-    lane_fitter.find_lanes(warped)
+    out_img = lane_fitter.find_lanes(warped)
 
     # Draw lanes
-    return draw_lane(warped,
-                     lane_fitter.left_fitx,
-                     lane_fitter.right_fitx,
-                     lane_fitter.ploty,
-                     M, undistorted_img)
+    result =  draw_lane(warped,
+                        lane_fitter.left_fitx,
+                        lane_fitter.right_fitx,
+                        lane_fitter.ploty,
+                        M, undistorted_img)
+    # Add curvature and offset from center information.
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    title = "Radius of Curvature = {}m.\n" \
+            .format((lane_fitter.left_curvature + lane_fitter.right_fitx)/2)
+    if lane_fitter.offset < 0:
+        title += "Vehicle is {}m left of center.".format(-lane_fitter.offset)
+    else:
+        title += "Vehicle is {}m right of center.".format(lane_fitter.offset)
+    cv2.putText(result, title, (10, 10), font, 2, 255)
+    return result
 
 def draw_lane(warped, lx, rx, y, M, undist):
     """ Color the region between the lane lines.
